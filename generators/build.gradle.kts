@@ -57,7 +57,6 @@ dependencies {
     testCompile(projectTests(":kotlin-noarg-compiler-plugin"))
     testCompile(projectTests(":kotlin-sam-with-receiver-compiler-plugin"))
     testCompile(projectTests(":kotlinx-serialization-compiler-plugin"))
-    testCompile(projectTests(":idea:jvm-debugger:jvm-debugger-test"))
     testCompile(projectTests(":generators:test-generator"))
     testCompile(projectTests(":idea"))
     testCompileOnly(project(":kotlin-reflect-api"))

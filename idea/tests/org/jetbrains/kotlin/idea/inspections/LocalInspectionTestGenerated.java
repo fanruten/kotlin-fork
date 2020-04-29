@@ -6069,6 +6069,54 @@ public class LocalInspectionTestGenerated extends AbstractLocalInspectionTest {
         }
     }
 
+    @TestMetadata("idea/testData/inspectionsLocal/memoryMutability")
+    @TestDataPath("$PROJECT_ROOT")
+    @RunWith(JUnit3RunnerWithInners.class)
+    public static class MemoryMutability extends AbstractLocalInspectionTest {
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        public void testAllFilesPresentInMemoryMutability() throws Exception {
+            KotlinTestUtils.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("idea/testData/inspectionsLocal/memoryMutability"), Pattern.compile("^([\\w\\-_]+)\\.(kt|kts)$"), null, true);
+        }
+
+        @TestMetadata("test1.kt")
+        public void testTest1() throws Exception {
+            runTest("idea/testData/inspectionsLocal/memoryMutability/test1.kt");
+        }
+
+        @TestMetadata("test2.kt")
+        public void testTest2() throws Exception {
+            runTest("idea/testData/inspectionsLocal/memoryMutability/test2.kt");
+        }
+
+        @TestMetadata("test3.kt")
+        public void testTest3() throws Exception {
+            runTest("idea/testData/inspectionsLocal/memoryMutability/test3.kt");
+        }
+
+        @TestMetadata("test4.kt")
+        public void testTest4() throws Exception {
+            runTest("idea/testData/inspectionsLocal/memoryMutability/test4.kt");
+        }
+
+        @TestMetadata("test5.kt")
+        public void testTest5() throws Exception {
+            runTest("idea/testData/inspectionsLocal/memoryMutability/test5.kt");
+        }
+
+        @TestMetadata("test6.kt")
+        public void testTest6() throws Exception {
+            runTest("idea/testData/inspectionsLocal/memoryMutability/test6.kt");
+        }
+
+        @TestMetadata("test7.kt")
+        public void testTest7() throws Exception {
+            runTest("idea/testData/inspectionsLocal/memoryMutability/test7.kt");
+        }
+    }
+
     @TestMetadata("idea/testData/inspectionsLocal/migrateDiagnosticSuppression")
     @TestDataPath("$PROJECT_ROOT")
     @RunWith(JUnit3RunnerWithInners.class)
