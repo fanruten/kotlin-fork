@@ -4,4 +4,3 @@ object Singleton {
     var i = 0
     fun increment() { i<caret>++ }
 }
-}
