@@ -58,7 +58,7 @@ private fun KtOperationExpression.checkMutationProblems(holder: ProblemsHolder) 
     for (item in this.siblings(forward = false, withItself = false)) {
         when (item) {
             is KtCallExpression -> {
-                if (item.allReferences().firstOrNull()?.canonicalText == "freeze") {
+                if (item.isFreezeCall()) {
                     val prop = mutatedProps[0] as? KtProperty
                     if (prop != null) {
                         val classBody = prop.parent as? KtClassBody ?: continue
@@ -82,13 +82,19 @@ private fun KtOperationExpression.checkMutationProblems(holder: ProblemsHolder) 
             }
 
             is KtDotQualifiedExpression -> {
-                val frozenProps = item.freezeCallSubject().mapNotNull { it.resolve() }
+                if (!item.isFreezeCall()) {
+                    continue
+                }
+                val frozenProps = item.allReferences().dropLast(1).mapNotNull { it.resolve() }
 
                 if (frozenProps.isNotEmpty()) {
                     if (frozenProps.isSubset(mutatedProps) && frozenProps.size < mutatedProps.size) {
                         holder.registerProblem(this, "Trying mutate frozen object", GENERIC_ERROR_OR_WARNING)
                         return
                     }
+                } else {
+                    holder.registerProblem(this, "Trying mutate frozen object", GENERIC_ERROR_OR_WARNING)
+                    return
                 }
             }
         }
@@ -117,22 +123,22 @@ private inline fun <T : Any, reified C : Any> Collection<T>.isItemsOf(clazz: Cla
     return true
 }
 
-private fun KtDotQualifiedExpression.freezeCallSubject(): List<KtSimpleNameReference> {
+private fun PsiElement.isFreezeCall(): Boolean {
     var refs = allReferences()
-    if (refs.isEmpty()) {
-        return listOf()
-    }
-
     var props = refs.mapNotNull { it.resolve() }
+
+    if (props.isEmpty()) {
+        return false
+    }
 
     if (props.dropLast(1).isItemsOf(clazz = KtProperty::class.java) &&
         props.last() is KtNamedFunction &&
-        allReferences().last().canonicalText == "freeze"
+        allReferences().lastOrNull()?.canonicalText == "freeze"
     ) {
-        return refs.dropLast(1)
+        return true
     }
 
-    return listOf()
+    return false
 }
 
 private fun PsiElement.allReferences(): List<KtSimpleNameReference> {
