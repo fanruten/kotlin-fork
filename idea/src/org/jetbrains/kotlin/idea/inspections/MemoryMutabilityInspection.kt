@@ -57,6 +57,19 @@ private fun KtOperationExpression.checkMutationProblems(holder: ProblemsHolder) 
 
     for (item in this.siblings(forward = false, withItself = false)) {
         when (item) {
+            is KtCallExpression -> {
+                if (item.allReferences().firstOrNull()?.canonicalText == "freeze") {
+                    val prop = mutatedProps[0] as? KtProperty
+                    if (prop != null) {
+                        val classBody = prop.parent as? KtClassBody ?: continue
+                        if (classBody.parent is KtClass) {
+                            holder.registerProblem(this, "Trying mutate frozen object", GENERIC_ERROR_OR_WARNING)
+                            return
+                        }
+                    }
+                }
+            }
+
             is KtOperationExpression -> {
                 val newMutatedReferences = item.firstChild.allReferences()
                 val newMutatedProps = newMutatedReferences.mapNotNull { it.resolve() }
