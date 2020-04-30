@@ -42,7 +42,7 @@ private fun KtOperationExpression.checkMutationProblems(holder: ProblemsHolder) 
         return
     }
 
-    if (mutatedReferences.firstOrNull()?.isSingletonPropertyRef() == true &&
+    if (mutatedReferences.firstOrNull()?.isObjectPropertyRef() == true &&
         mutatedProps.drop(1).isItemsOf(clazz = KtProperty::class.java)
     ) {
         holder.registerProblem(this, "Trying mutate frozen Object property", GENERIC_ERROR_OR_WARNING)
@@ -79,14 +79,10 @@ private fun KtOperationExpression.checkMutationProblems(holder: ProblemsHolder) 
                 if (!item.isFreezeCall()) {
                     continue
                 }
-                val frozenProps = item.allReferences().dropLast(1).mapNotNull { it.resolve() }
 
-                if (frozenProps.isNotEmpty()) {
-                    if (frozenProps.isSubset(mutatedProps) && frozenProps.size < mutatedProps.size) {
-                        holder.registerProblem(this, "Trying mutate frozen object", GENERIC_ERROR_OR_WARNING)
-                        return
-                    }
-                } else {
+                val frozenProps = item.allReferences().mapNotNull { it.resolve() }.dropLast(1)
+
+                if (frozenProps.isSubset(mutatedProps) && frozenProps.size < mutatedProps.size) {
                     holder.registerProblem(this, "Trying mutate frozen object", GENERIC_ERROR_OR_WARNING)
                     return
                 }
@@ -167,7 +163,7 @@ private fun PsiElement.allReferences(): List<KtSimpleNameReference> {
     return refs
 }
 
-private fun KtSimpleNameReference.isSingletonPropertyRef(): Boolean {
+private fun KtSimpleNameReference.isObjectPropertyRef(): Boolean {
     when (val item = resolve()) {
         is KtObjectDeclaration ->
             return true
