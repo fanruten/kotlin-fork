@@ -17,8 +17,6 @@ import kotlin.collections.List
 import kotlin.collections.find
 import kotlin.collections.first
 import kotlin.collections.isNotEmpty
-import kotlin.collections.listOf
-import kotlin.reflect.KClass
 
 class MemoryMutabilityInspection : AbstractKotlinInspection() {
     override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean): PsiElementVisitor {
@@ -44,8 +42,8 @@ private fun KtOperationExpression.checkMutationProblems(holder: ProblemsHolder) 
         return
     }
 
-    if (mutatedReferences.firstOrNull()?.isSingletonPropertyRef() == true
-        && mutatedProps.drop(1).isItemsOf(clazz = KtProperty::class.java)
+    if (mutatedReferences.firstOrNull()?.isSingletonPropertyRef() == true &&
+        mutatedProps.drop(1).isItemsOf(clazz = KtProperty::class.java)
     ) {
         holder.registerProblem(this, "Trying mutate frozen Object property", GENERIC_ERROR_OR_WARNING)
         return
@@ -59,13 +57,9 @@ private fun KtOperationExpression.checkMutationProblems(holder: ProblemsHolder) 
         when (item) {
             is KtCallExpression -> {
                 if (item.isFreezeCall()) {
-                    val prop = mutatedProps[0] as? KtProperty
-                    if (prop != null) {
-                        val classBody = prop.parent as? KtClassBody ?: continue
-                        if (classBody.parent is KtClass) {
-                            holder.registerProblem(this, "Trying mutate frozen object", GENERIC_ERROR_OR_WARNING)
-                            return
-                        }
+                    if ((mutatedProps.first() as? KtProperty)?.isThisClassMember() == true) {
+                        holder.registerProblem(this, "Trying mutate frozen object", GENERIC_ERROR_OR_WARNING)
+                        return
                     }
                 }
             }
@@ -124,8 +118,8 @@ private inline fun <T : Any, reified C : Any> Collection<T>.isItemsOf(clazz: Cla
 }
 
 private fun PsiElement.isFreezeCall(): Boolean {
-    var refs = allReferences()
-    var props = refs.mapNotNull { it.resolve() }
+    val refs = allReferences()
+    val props = refs.mapNotNull { it.resolve() }
 
     if (props.isEmpty()) {
         return false
@@ -178,10 +172,18 @@ private fun KtSimpleNameReference.isSingletonPropertyRef(): Boolean {
         is KtObjectDeclaration ->
             return true
 
-        is KtProperty -> {
-            val classBody = item.parent as? KtClassBody ?: return false
-            return classBody.parent is KtObjectDeclaration
-        }
+        is KtProperty ->
+            return item.isThisObjectMember()
     }
     return false
+}
+
+private fun KtProperty.isThisObjectMember(): Boolean {
+    val classBody = parent as? KtClassBody ?: return false
+    return classBody.parent is KtObjectDeclaration
+}
+
+private fun KtProperty.isThisClassMember(): Boolean {
+    val classBody = parent as? KtClassBody ?: return false
+    return classBody.parent is KtClass
 }
