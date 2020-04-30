@@ -1,4 +1,4 @@
-// PROBLEM: Trying mutate frozen Object property
+// PROBLEM: Trying mutate frozen object
 // FIX: none
 
 object Singleton {

@@ -1,17 +1,15 @@
 // PROBLEM: Trying mutate frozen object
 // FIX: none
-class Data {
-    var n = 0
-
-    fun freeze() { }
-}
-
 class Foo {
-    var i = Data()
+    var i = 1
 
     fun increment() {
-        this.i.freeze()
-        i.n<caret>++
+        freeze()
+        mutate<caret>()
+    }
+
+    fun mutate() {
+        i += 3
     }
 
     fun freeze() { }
