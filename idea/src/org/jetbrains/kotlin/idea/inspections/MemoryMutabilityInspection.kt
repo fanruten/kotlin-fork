@@ -18,6 +18,7 @@ import kotlin.collections.find
 import kotlin.collections.first
 import kotlin.collections.isNotEmpty
 import kotlin.collections.listOf
+import kotlin.reflect.KClass
 
 class MemoryMutabilityInspection : AbstractKotlinInspection() {
     override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean): PsiElementVisitor {
@@ -38,13 +39,19 @@ class MemoryMutabilityInspection : AbstractKotlinInspection() {
 private fun KtOperationExpression.checkMutationProblems(holder: ProblemsHolder) {
     val mutatedReferences = firstChild.allReferences()
 
-    if (mutatedReferences.firstOrNull()?.isSingletonPropertyRef() == true) {
+    var mutatedProps = mutatedReferences.mapNotNull { it.resolve() }
+    if (mutatedProps.isEmpty()) {
+        return
+    }
+
+    if (mutatedReferences.firstOrNull()?.isSingletonPropertyRef() == true
+        && mutatedProps.drop(1).isItemsOf(clazz = KtProperty::class.java)
+    ) {
         holder.registerProblem(this, "Trying mutate frozen Object property", GENERIC_ERROR_OR_WARNING)
         return
     }
 
-    var mutatedProps = mutatedReferences.mapNotNull { it.resolve() }
-    if (mutatedProps.isEmpty()) {
+    if (!mutatedProps.isItemsOf(clazz = KtProperty::class.java)) {
         return
     }
 
@@ -88,13 +95,28 @@ private fun <T : Any> Collection<T>.isSubset(array: Collection<T>): Boolean {
     return true
 }
 
-private fun KtDotQualifiedExpression.freezeCallSubject(): List<KtSimpleNameReference> {
-    val call = children.find { it is KtCallExpression } ?: return listOf()
-    val invokeFunction = call.children.find { it is KtReferenceExpression } ?: return listOf()
-    val nameReference = invokeFunction.references.find { it is KtSimpleNameReference } ?: return listOf()
+private inline fun <T : Any, reified C : Any> Collection<T>.isItemsOf(clazz: Class<C>): Boolean {
+    for (item in this) {
+        if (!clazz.isInstance(item)) {
+            return false
+        }
+    }
+    return true
+}
 
-    if (nameReference.canonicalText == "freeze") {
-        return allReferences()
+private fun KtDotQualifiedExpression.freezeCallSubject(): List<KtSimpleNameReference> {
+    var refs = allReferences()
+    if (refs.isEmpty()) {
+        return listOf()
+    }
+
+    var props = refs.mapNotNull { it.resolve() }
+
+    if (props.dropLast(1).isItemsOf(clazz = KtProperty::class.java) &&
+        props.last() is KtNamedFunction &&
+        allReferences().last().canonicalText == "freeze"
+    ) {
+        return refs.dropLast(1)
     }
 
     return listOf()
@@ -113,6 +135,12 @@ private fun PsiElement.allReferences(): List<KtSimpleNameReference> {
         when (item) {
             is KtDotQualifiedExpression ->
                 stack.addAll(0, item.children.toList())
+
+            is KtCallExpression -> {
+                val functionIdentifier = item.children.first()
+                if (functionIdentifier != null)
+                    stack.add(0, functionIdentifier)
+            }
 
             is KtReferenceExpression -> {
                 val nameRef = item.references.find { it is KtSimpleNameReference } as? KtSimpleNameReference

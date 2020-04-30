@@ -6120,6 +6120,11 @@ public class LocalInspectionTestGenerated extends AbstractLocalInspectionTest {
         public void testTest8() throws Exception {
             runTest("idea/testData/inspectionsLocal/memoryMutability/test8.kt");
         }
+
+        @TestMetadata("test9.kt")
+        public void testTest9() throws Exception {
+            runTest("idea/testData/inspectionsLocal/memoryMutability/test9.kt");
+        }
     }
 
     @TestMetadata("idea/testData/inspectionsLocal/migrateDiagnosticSuppression")
