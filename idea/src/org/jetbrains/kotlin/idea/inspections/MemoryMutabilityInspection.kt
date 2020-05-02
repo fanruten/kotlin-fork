@@ -20,105 +20,163 @@ import kotlin.collections.isNotEmpty
 class MemoryMutabilityInspection : AbstractKotlinInspection() {
     override fun buildVisitor(holder: ProblemsHolder, isOnTheFly: Boolean): PsiElementVisitor {
         return object : KtVisitorVoid() {
+            var inspectionImpl = MemoryMutabilityInspectionImpl(holder)
+
             override fun visitNamedFunction(function: KtNamedFunction) {
                 super.visitNamedFunction(function)
-
-                val classBody = (function.parent as? KtClassBody)
-                var isThisFrozen = classBody?.parent is KtObjectDeclaration
-                var frozenPropsStorage = ArrayList<List<PsiElement>>()
-
-                for (item in function.lastChild.children) {
-                    when (item) {
-                        is KtCallExpression -> {
-                            if (isThisFrozen) {
-                                if (item.isMutateThis()) {
-                                    holder.registerProblem(item, "Trying mutate frozen object", GENERIC_ERROR_OR_WARNING)
-                                }
-                            } else {
-                                if (item.isFreezeCall()) {
-                                    isThisFrozen = true
-                                }
-                            }
-                        }
-
-                        is KtDotQualifiedExpression -> {
-                            if (item.isFreezeCall()) {
-                                val frozenProps = item.callReferences().mapNotNull { it.resolve() }
-                                frozenPropsStorage.add(frozenProps.dropLast(1))
-                            }
-                        }
-
-                        is KtOperationExpression -> {
-                            val mutatedProps = item.firstChild.callReferences().mapNotNull { it.resolve() }
-
-                            if (mutatedProps.firstOrNull() is KtObjectDeclaration ||
-                                mutatedProps.firstOrNull()?.isThisObjectMember() == true ||
-                                (isThisFrozen && mutatedProps.firstOrNull()?.isThisClassMember() == true)
-                            ) {
-                                holder.registerProblem(item, "Trying mutate frozen object", GENERIC_ERROR_OR_WARNING)
-                            } else {
-                                frozenPropsStorage = frozenPropsStorage.filterNot {
-                                    (mutatedProps.isNotEmpty() && mutatedProps.isSubset(it))
-                                }.toCollection(ArrayList())
-
-                                for (frozenProp in frozenPropsStorage) {
-                                    if (frozenProp.isSubset(mutatedProps) && frozenProp.size < mutatedProps.size) {
-                                        holder.registerProblem(item, "Trying mutate frozen object", GENERIC_ERROR_OR_WARNING)
-                                        break
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                inspectionImpl.checkMutationProblems(function)
             }
         }
     }
 }
 
-private fun <T : Any> Collection<T>.isSubset(array: Collection<T>): Boolean {
-    val otherSize = array.size
-    for ((index, value) in iterator().withIndex()) {
-        if (index < otherSize && value == array.elementAt(index)) {
-            continue
-        } else {
-            return false
+private class MemoryMutabilityInspectionImpl(private val holder: ProblemsHolder) {
+    data class FunctionInfo(
+        var isThisFrozen: Boolean = false,
+        var frozenPropsStorage: ArrayList<List<PsiElement>> = arrayListOf(),
+        var mutatedPropsStorage: ArrayList<List<PsiElement>> = arrayListOf()
+    )
+
+    private val functionsInfo: MutableMap<KtNamedFunction, FunctionInfo> = mutableMapOf()
+
+    internal fun checkMutationProblems(function: KtNamedFunction): FunctionInfo {
+        functionsInfo[function]?.let {
+            return it
         }
-    }
 
-    return true
-}
+        val functionInfo = FunctionInfo()
+        functionInfo.isThisFrozen = function.isObjectFunction()
 
-private inline fun <T : Any, reified C : Any> Collection<T>.isItemsOf(clazz: Class<C>): Boolean {
-    for (item in this) {
-        if (!clazz.isInstance(item)) {
-            return false
+        mainLoop@
+        for (item in (function.bodyBlockExpression?.children ?: arrayOf())) {
+            when (item) {
+                is KtCallExpression -> {
+                    if (item.isFreezeCall()) {
+                        functionInfo.isThisFrozen = true
+                    } else {
+                        item.calleeExpression?.let {
+                            mergeFunctionInfoFromElementAndCheck(it, functionInfo)
+                        }
+                    }
+                }
+
+                is KtDotQualifiedExpression -> {
+                    if (item.isFreezeCall()) {
+                        val callItems = item.callReferences().resolve()
+                        functionInfo.frozenPropsStorage.add(callItems.dropLast(1))
+                    } else {
+                        mergeFunctionInfoFromElementAndCheck(item, functionInfo)
+                    }
+                }
+
+                is KtOperationExpression -> {
+                    val rightPart = item.lastChild
+                    if (rightPart is KtDotQualifiedExpression) {
+                        mergeFunctionInfoFromElementAndCheck(rightPart, functionInfo)
+                    }
+
+                    val mutatedProps = item.firstChild.callReferences().resolve()
+                    if (mutatedProps.isEmpty()) {
+                        continue
+                    }
+
+                    if (mutatedProps.first().isThisClassMember()) {
+                        functionInfo.mutatedPropsStorage.add(mutatedProps)
+                    }
+
+                    functionInfo.frozenPropsStorage = functionInfo.frozenPropsStorage.filterNot {
+                        mutatedProps.isSubset(it)
+                    }.toCollection(ArrayList())
+
+                    if (mutatedProps.first() is KtObjectDeclaration ||
+                        mutatedProps.first().isThisObjectMember() ||
+                        (functionInfo.isThisFrozen && mutatedProps.first().isThisClassMember())
+                    ) {
+                        registerMutationProblemOn(item)
+                        continue
+                    }
+
+                    for (frozenProp in functionInfo.frozenPropsStorage) {
+                        if (frozenProp.isSubset(mutatedProps) && frozenProp.size < mutatedProps.size) {
+                            registerMutationProblemOn(item)
+                            continue@mainLoop
+                        }
+                    }
+                }
+            }
         }
-    }
-    return true
-}
 
-private fun PsiElement.isFreezeCall(): Boolean {
-    val refs = callReferences()
-    val props = refs.mapNotNull { it.resolve() }
-
-    if (props.isEmpty()) {
-        return false
+        functionsInfo[function] = functionInfo
+        return functionInfo
     }
 
-    if (props.last() is KtNamedFunction && refs.lastOrNull()?.canonicalText == "freeze" &&
-        props.dropLast(1).isItemsOf(clazz = KtProperty::class.java)
+    private fun mergeFunctionInfoFromElementAndCheck(
+        elementForCheck: PsiElement,
+        primaryFunctionInfo: FunctionInfo
     ) {
-        return true
+        val props = elementForCheck.callReferences().resolve()
+        val funcItem = props.lastOrNull() as? KtNamedFunction
+        if (funcItem != null) {
+            val additionalFunctionInfo = functionsInfo[funcItem] ?: checkMutationProblems(funcItem)
+            mergeFunctionInfoAndCheck(elementForCheck, primaryFunctionInfo, additionalFunctionInfo, props.dropLast(1))
+        }
     }
 
-    return false
+    private fun mergeFunctionInfoAndCheck(
+        elementForCheck: PsiElement,
+        primaryFunctionInfo: FunctionInfo,
+        additionalFunctionInfo: FunctionInfo,
+        scope: List<PsiElement> = arrayListOf()
+    ) {
+        val additionalFrozenPropsStorage = additionalFunctionInfo.frozenPropsStorage.map {
+            scope.plus(it)
+        }
+        val additionalMutatedPropsStorage = additionalFunctionInfo.mutatedPropsStorage.map {
+            scope.plus(it)
+        }
+        
+        primaryFunctionInfo.frozenPropsStorage = primaryFunctionInfo.frozenPropsStorage.filter {
+            var isIncluded = true
+            for (prop in additionalMutatedPropsStorage) {
+                if (prop.isNotEmpty() && prop.isSubset(it)) {
+                    isIncluded = false
+                    break
+                }
+            }
+            isIncluded
+        }.toCollection(ArrayList())
+
+        primaryFunctionInfo.frozenPropsStorage.addAll(additionalFrozenPropsStorage)
+        primaryFunctionInfo.mutatedPropsStorage.addAll(additionalMutatedPropsStorage)
+
+        if (primaryFunctionInfo.isThisFrozen && additionalMutatedPropsStorage.isNotEmpty()) {
+            registerMutationProblemOn(elementForCheck)
+            return
+        }
+
+        if (additionalFunctionInfo.isThisFrozen) {
+            primaryFunctionInfo.isThisFrozen = true
+        }
+
+        for (frozenProp in primaryFunctionInfo.frozenPropsStorage) {
+            for (mutatedProps in primaryFunctionInfo.mutatedPropsStorage) {
+                if (frozenProp.isSubset(mutatedProps) && frozenProp.size < mutatedProps.size) {
+                    registerMutationProblemOn(elementForCheck)
+                    return
+                }
+            }
+        }
+    }
+
+    private fun registerMutationProblemOn(element: PsiElement) {
+        holder.registerProblem(element, "Trying mutate frozen object", GENERIC_ERROR_OR_WARNING)
+    }
 }
 
 private fun PsiElement.callReferences(): List<KtSimpleNameReference> {
-    val refs = ArrayList<KtSimpleNameReference>(0)
+    val refs = mutableListOf<KtSimpleNameReference>()
 
-    val stack = ArrayList<PsiElement>(0)
+    val stack = mutableListOf<PsiElement>()
     stack.add(this)
 
     while (stack.isNotEmpty()) {
@@ -126,25 +184,67 @@ private fun PsiElement.callReferences(): List<KtSimpleNameReference> {
         stack.removeAt(0)
 
         when (item) {
-            is KtDotQualifiedExpression ->
+            is KtDotQualifiedExpression -> {
                 stack.addAll(0, item.children.toList())
-
+            }
             is KtCallExpression -> {
                 item.calleeExpression?.let {
                     stack.add(0, it)
                 }
             }
-
             is KtReferenceExpression -> {
-                val nameRef = item.references.find { it is KtSimpleNameReference } as? KtSimpleNameReference
+                val nameRef = item.simpleNameReference()
                 if (nameRef != null) {
                     refs.add(nameRef)
+                } else {
+                    break
                 }
             }
         }
     }
 
     return refs
+}
+
+private fun List<KtSimpleNameReference>.resolve(): List<PsiElement> {
+    val items = ArrayList<PsiElement>()
+
+    for (ref in this) {
+        when (val item = ref.resolve()) {
+            is KtNamedFunction -> {
+                items.add(item)
+                break
+            }
+            is KtClassOrObject ->
+                items.add(item)
+            is KtProperty ->
+                items.add(item)
+            else -> {
+                break
+            }
+        }
+    }
+
+    return items
+}
+
+private fun PsiElement.simpleNameReference(): KtSimpleNameReference? {
+    return references.find { it is KtSimpleNameReference } as? KtSimpleNameReference
+}
+
+private fun PsiElement.isFreezeCall(): Boolean {
+    val props = callReferences().resolve()
+
+    if ((props.lastOrNull() as? KtNamedFunction)?.name == "freeze") {
+        return true
+    }
+
+    return false
+}
+
+private fun KtNamedFunction.isObjectFunction(): Boolean {
+    val classBody = (parent as? KtClassBody)
+    return classBody?.parent is KtObjectDeclaration
 }
 
 private fun PsiElement.isThisObjectMember(): Boolean {
@@ -163,27 +263,15 @@ private fun PsiElement.isThisClassMember(): Boolean {
     return classBody.parent is KtClass
 }
 
-private fun KtCallExpression.isMutateThis(): Boolean {
-    val funcItem = children.firstOrNull()?.references?.find { it is KtSimpleNameReference }?.resolve()
-    if (funcItem is KtNamedFunction) {
-        val classBody = funcItem.parent as? KtClassBody ?: return false
-        val isClassMember = classBody.parent is KtClass
-
-        if (isClassMember) {
-            funcItem.bodyBlockExpression?.let {
-                for (item in it.children) {
-                    when (item) {
-                        is KtOperationExpression -> {
-                            val mutatedReferences = item.firstChild.callReferences()
-                            if (mutatedReferences.firstOrNull()?.resolve()?.isThisClassMember() == true) {
-                                return true
-                            }
-                        }
-                    }
-                }
-            }
+private fun <T : Any> Collection<T>.isSubset(array: Collection<T>): Boolean {
+    val otherSize = array.size
+    for ((index, value) in iterator().withIndex()) {
+        if (index < otherSize && value == array.elementAt(index)) {
+            continue
+        } else {
+            return false
         }
     }
 
-    return false
+    return true
 }

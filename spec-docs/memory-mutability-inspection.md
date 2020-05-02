@@ -2,15 +2,35 @@
 
 Нужно сделать несколько проверок, находящих мутацию `frozen` объекта.
 
+## Вводные
+
+Замороженным (`frozen`) объектом, является синглтон (`object`) и любой другой объект, на котором вызван метод `freeze`.
+Изменение полей `frozen` объекта приводит к выбросу исключения.
+
+Объект мутирует при изменении его полей, которое возможно только при использовании оператора присваивания.
+А вызов оператора присваивания возможен только из тела метода.
+
+Выходит, что надо просмотреть тело кажого метода, найти присваивания в поля `object` или объекта на котором был вызван `frozen`.
+И показать предупреждение.
+
 ## Что делаем
 
-Реализуем наивный алгоритм.
+Чтобы мутировать или заморозить объект, нам нужна ссылка на него. 
 
-Для простоты, мутации скрытые в кложуре/методе рассматривать не будем.
+Получить ее можно через:
+* глобальную переменную
+* свойство объекта
+* локальную переменную
+* аргумент метода
+* результат вызова метода
 
-Будут поддержаны:
-* предупреждения при мутации на object
-* предупреждения при мутации свойств (включая вложенные свойства) у `frozen` объектов
+Для простоты, будем рассматривать только ссылки через свойства и локальные/глобальные переменные.
+
+Таким образом, будут поддержаны:
+* мутации на object
+* мутации свойств (включая вложенные свойства) у `frozen` объектов через присваивание 
+* мутации свойств (включая вложенные свойства) у `frozen` объектов через вызов метода
+
 
 Пример:
 
@@ -37,7 +57,10 @@ class Container {
     var foo = Foo()
     var m = 1
 
-    fun update() { m = 3 }
+    fun update(): Int { 
+        m = 3
+        return m
+    }
 }
 
 fun test2() {
@@ -65,60 +88,48 @@ fun test4() {
     var c = Container()
     c.freeze()
 
-    c.update() // Проблема не обнаружена
+    c.update() // Пишем, что есть проблема
+    val n = c.update() // Пишем, что есть проблема
 }
 ```
-
-## Алгоритм
-
-Объект может быть `frozen` изначально или стать таким после вызова `freeze()`.
-
-Это значит, что есть два случая проверки на `frozen`.
-В первом, мы смотрим на определение объекта и например проверяем, что это cинглтон.
-Во втором, проходимся по коду вверх от мутации и проверяем, нет ли там вызова freeze.
-
-Наивный алгоритм:
-* Находим мутацию
-* Смотрим на описание типа. Если это `frozen` объект, то сразу показываем warning и идем к следующей мутации.
-* Если не `frozen`, то идем вверх по коду и ищем вызов `freeze()` на объекте, где происходит мутация или на его контейнере.
-
-Мутация и вызов `freeze()`, могут быть сокрыты методами или кложурами, что сложно для анализа.
-
-Пример:
-
-``` kotlin
-class Foo {
-   var a = 0
-   fun increment() { a++ }
-}
-```
-
-Теперь вызов `increment`, надо рассматривать как мутацию.
-
-Аналогично может быть с `freeze()`.
-
-Пример:
-
-``` kotlin
-var foo = Foo()
-doSomething({
-  foo.freeze()
-})
-foo.mutate()
-```
-
-В случае кложур, еще нужно проверять, как кложура используется внутри метода и в какой момент вызывается (если вызывается вообще).
-Эти случаи рассматривать не будем.
 
 ## PSI
 
-Особое место в PSI, занимает `KtSimpleNameReference`.
-На объектах этого типа, мы можем вызвать метод `resolve()` и получить описание структуры, на которую ссылается переменная.
+Анализ выполняется на представлении программы в виде дерева PSI элементов.
+
+Среди PSI элементов интересны следующие.
+
+`KtCallExpression` — описывает вызов метода.
+
+`KtDotQualifiedExpression` — описывает вызов обращение через точку `.`. Это может быть вызов метода или доступ к свойству.
+
+`KtOperationExpression` — описывает операцию присваивания.
+
+`KtReferenceExpression` — описывает использование ссылки (например идентификатора). 
+
+Cвойство `KtReferenceExpression.references`, содержит используемые выражением ссылки.
+Сслыка может указывать на переменную, метод, свойство, ...
+
+Если в поле ```KtReferenceExpression.references()``` есть объект типа `KtSimpleNameReference`, то можно получить элемент на который ссылается `KtReferenceExpression`.
+Для этого нужно вызвать `KtSimpleNameReference.resolve()`.
+
+## Алгоритм
+
+Наивный алгоритм:
+* Находим описанием метода и начинаем анализировать его тело.
+* Если встречаем вызов `freeze`, то запоминаем ссылку на объект, на котором он вызван (добавляем в список `frozens`).
+Если `freeze` вызвается на `this` или метод принадлежит `object`, то отмечаем, что текущий объект (`this`) теперь `frozen`.
+* Если встречаем замену ссылки на `frozen` объекта, то убираем ссылку из списка `forzen`.
+* Если встречаем мутацию свойства объекта, ссылка на который есть в списке `forzen`, или мутацию `this` и мы уже отметили, что `this` заморожен, то выводим предупреждение.
+* Если встречаем мутацию объекта, на который нет ссылки в списке `forzen` и которая происходит через свойство объекта, то добавляем ссылку в список `mutations`.
+* Если встречаем вызов метода, то запускаем на нем такой-же алгоритм и запрашиваем список мутированных/замороженных свойств объекта, чтобы дополнить списки `mutations`/`frozens`.
+Дополнительно узнаем мутирует ли метод текущий объект (`this`) и если мутирует, а текущий объект `frozen`, то выводим предупреждение.
+* В конце анализа метода, сохраняем информацию о том, какие ссылки были заморожены и мутированы.
 
 ## Как делаем
 
-Нам нужно найти мутацию. Так как мутация может быть в цепочке вызовов, надо выбрать подходящий способ ее представления.
-Для этого идеально подходит массив `KtSimpleNameReference`.
+Нужен какой-то способ, чтобы описать ссылки на объекты, на которых происходит мутация/заморозка.
+При этом надо учесть, что может быть цепочка ссылок.
 
 Пример:
 
@@ -126,46 +137,57 @@ foo.mutate()
 c.foo.i = 5
 ```
 
-В таком случае мутация будет описана массивом ссылок `[c, foo, i]`.
+Для этого идеально подходит массив `KtSimpleNameReference`.
 
-С таким способ представления мутации, доступен следующий алгоритм:
-* Если первая ссылка массива, указывает на object или свойство object, то выводим предупреждение.
-* Если нет, то от того места, где была мутация, идем вверх по коду до начала текущего скоупа.
-* Если встречаем мутацию, которая является подмножеством текущей, то уменьшаем скоуп мутации до нее.
-* Если встречаем вызов метода (`KtDotQualifiedExpression`), то проверяем на вызов `freeze()`. 
-Если это он, то получаем массив ссылок на элементы для которых вызван `freeze()`.
-* Если массив freeze является подмассиовм мутации и мутации есть дополнительные элементы, то было изменение `frozen` элемента и мы выводим предупреждение.  
+Напишем функцию для получения такой цепочки:
+``` kotlin
+private fun PsiElement.callReferences(): List<KtSimpleNameReference> {
+    val refs = ArrayList<KtSimpleNameReference>(0)
+
+    val stack = ArrayList<PsiElement>(0)
+    stack.add(this)
+
+    while (stack.isNotEmpty()) {
+        val item = stack.first()
+        stack.removeAt(0)
+
+        when (item) {
+            is KtDotQualifiedExpression ->
+                stack.addAll(0, item.children.toList())
+
+            is KtCallExpression -> {
+                item.calleeExpression?.let {
+                    stack.add(0, it)
+                }
+            }
+
+            is KtReferenceExpression -> {
+                val nameRef = item.references.find { it is KtSimpleNameReference } as? KtSimpleNameReference
+                if (nameRef != null) {
+                    refs.add(nameRef)
+                } else {
+                    break
+                }
+            }
+        }
+    }
+
+    return refs
+}
+```
+
+Иногда `KtSimpleNameReference` нельзя получить, например когда код не дописан или есть ошибка. 
+Поэтому прервем построение цепочки, если `KtSimpleNameReference` нет. 
 
 Пример:
 
 ``` kotlin
 c.foo.i.freeze()
-с.foo = Foo()
-c.foo.i = 5
 ```
 
-* Допустим начинаем с `c.foo.i = 5`
-* У нас будет массив ссылок `[c, foo, i]`
-* Идем вверх и встречаем `с.foo = Foo()` с массивом ссылок `[c, foo]`
-* Так как он подмассив для `[c, foo, i]`, то теперь рассматриваем `[c, foo]`   
-* Идем вверх и встречаем `c.foo.i.freeze()` с массивом ссылок `[c, foo, i]`
-* `[c, foo, i]`  является надмножеством изменений `[c, foo]`, это значит, что мутации `frozen` данных нет.
+Получим цепочку ```['c', 'foo', 'i', 'freeze']```
 
-Пример:
-
-``` kotlin
-c.freeze()
-с.foo = Foo()
-c.foo.i = 5
-```
-
-* Допустим начинаем с `c.foo.i = 5`
-* У нас будет массив ссылок `[c, foo, i]`
-* Идем вверх и встречаем `с.foo = Foo()` с массивом ссылок `[c, foo]`
-* Так как он подмассив для `[c, foo, i]`, то теперь рассматриваем `[c, foo]`   
-* Идем вверх и встречаем `c.freeze()` с массивом ссылок `[c]`
-* `[c]` является подмножеством изменений `[c, foo]`, это значит, что есть мутация `frozen` данных.
-
+Если вызвать ```resolve()``` на элементах этого массива, то мы получим конкретные PSI элементы, ```KtProperty```,  ```KtNamedFunction```, ...
 
 ## Ищем мутацию
 
@@ -195,47 +217,9 @@ c.foo.i += 5
 
 Итого, нам нужно найти все ссылки на изменяемые значения (`KtReferenceExpression`), которые могут быть вложены в `KtDotQualifiedExpression` (вложенные вызовы).
 
-Пример возможной реализации:
-
-``` kotlin
-private fun KtOperationExpression.mutatedReferences(): List<KtSimpleNameReference> {
-    val stack = ArrayList<PsiElement>(0)
-    stack.add(firstChild)
-
-    val mutated = ArrayList<KtSimpleNameReference>(0)
-
-    while (stack.isNotEmpty()) {
-        val item = stack.first()
-        stack.removeAt(0)
-
-        when (item) {
-            is KtDotQualifiedExpression ->
-                stack.addAll(0, item.children.toList())
-
-            is KtReferenceExpression -> {
-                val nameRef = item.references.find { it is KtSimpleNameReference } as? KtSimpleNameReference
-                if (nameRef != null) {
-                    mutated.add(nameRef)
-                }
-            }
-        }
-    }
-
-    return mutated
-}
-```
-
-Пример:
-
-``` kotlin
-c.foo.i = 5
-```
-
-Метод должен вернуть три ссылки (`KtSimpleNameReference`) `[c, foo, i]`
-
 ## Проверка на `frozen` объект
 
-Изначально `frozen` объектом являются синглтон (object).
+Изначально `frozen` объектом являются синглтон (```object```).
 
 Есть еще дополнительные аттрибуты, влияющие на заморозку объекта (`@konan.ThreadLocal`, `@konan.SharedImmutable`).
 В рамках простой проверки, пропустим их.
@@ -255,8 +239,8 @@ fun test() {
 ```
 
 
-Предположим, что у нас есть ссылка на изменяемую переменную (`KtSimpleNameReference`).
-Проверить ее можно следующим кодом.
+Предположим, что у нас есть ссылка (`KtSimpleNameReference`).
+Проверить, что это сслыка на свойство `object`, можно следующим кодом.
 
 
 ``` kotlin
@@ -282,38 +266,15 @@ private fun KtSimpleNameReference.isSingletonPropertyRef(): Boolean {
 Пример возможной реализации:
 
 ``` kotlin
-private fun KtDotQualifiedExpression.freezeCallSubject(): ArrayList<KtSimpleNameReference> {
-    val refs = ArrayList<KtSimpleNameReference>(0)
+private fun PsiElement.isFreezeCall(): Boolean {
+    val props = callReferences().mapNotNull { it.resolve() }
 
-    val call = children.find { it is KtCallExpression } ?: return refs
-    val invokeFunction = call.children.find { it is KtReferenceExpression } ?: return refs
-    val nameReference = invokeFunction.references.find { it is KtSimpleNameReference } ?: return refs
-
-    if (nameReference.canonicalText == "freeze") {
-        val stack = ArrayList<PsiElement>(0)
-        stack.add(firstChild)
-
-        while (stack.isNotEmpty()) {
-            val item = stack.first()
-            stack.removeAt(0)
-
-            when (item) {
-                is KtDotQualifiedExpression ->
-                    stack.addAll(0, item.children.toList())                    
-
-                is KtReferenceExpression -> {
-                    val nameRef = item.references.find { it is KtSimpleNameReference } as? KtSimpleNameReference
-                    if (nameRef != null) {
-                        refs.add(nameRef)
-                    }
-                }
-            }
-        }
+    if (props.dropLast(1).isItemsOf(clazz = KtProperty::class.java) &&
+        (props.last() as? KtNamedFunction)?.name == "freeze"
+    ) {
+        return true
     }
 
-    return refs
+    return false
 }
 ```
-
-Например, анализируем строку `c.foo.freeze()`.
-Для нее `freezeCallSubject` вернет массив идентификаторов `[c, foo]`
