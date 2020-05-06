@@ -34,7 +34,8 @@ private class MemoryMutabilityInspectionImpl(private val holder: ProblemsHolder)
     data class FunctionInfo(
         var isThisFrozen: Boolean = false,
         var frozenPropsStorage: ArrayList<List<PsiElement>> = arrayListOf(),
-        var mutatedPropsStorage: ArrayList<List<PsiElement>> = arrayListOf()
+        var notOverriddenMutatedPropsStorage: ArrayList<List<PsiElement>> = arrayListOf(),
+        var allMutatedPropsStorage: ArrayList<List<PsiElement>> = arrayListOf()
     )
 
     private val functionsInfo: MutableMap<KtNamedFunction, FunctionInfo> = mutableMapOf()
@@ -81,7 +82,15 @@ private class MemoryMutabilityInspectionImpl(private val holder: ProblemsHolder)
                     }
 
                     if (mutatedProps.first().isThisClassMember()) {
-                        functionInfo.mutatedPropsStorage.add(mutatedProps)
+                        val isMutateOnOverridden = functionInfo.allMutatedPropsStorage.any {
+                            it.isSubset(mutatedProps)
+                        }
+
+                        if (!isMutateOnOverridden) {
+                            functionInfo.notOverriddenMutatedPropsStorage.add(mutatedProps)
+                        }
+
+                        functionInfo.allMutatedPropsStorage.add(mutatedProps)
                     }
 
                     functionInfo.frozenPropsStorage = functionInfo.frozenPropsStorage.filterNot {
@@ -128,16 +137,41 @@ private class MemoryMutabilityInspectionImpl(private val holder: ProblemsHolder)
         additionalFunctionInfo: FunctionInfo,
         scope: List<PsiElement> = arrayListOf()
     ) {
-        val additionalFrozenPropsStorage = additionalFunctionInfo.frozenPropsStorage.map {
+        val otherFrozenPropsStorage = additionalFunctionInfo.frozenPropsStorage.map {
             scope.plus(it)
         }
-        val additionalMutatedPropsStorage = additionalFunctionInfo.mutatedPropsStorage.map {
+        val otherAllMutatedPropsStorage = additionalFunctionInfo.allMutatedPropsStorage.map {
             scope.plus(it)
         }
-        
+        val otherNotOverriddenMutatedPropsStorage = additionalFunctionInfo.notOverriddenMutatedPropsStorage.map {
+            scope.plus(it)
+        }
+
+        primaryFunctionInfo.frozenPropsStorage.addAll(otherFrozenPropsStorage)
+        primaryFunctionInfo.notOverriddenMutatedPropsStorage.addAll(otherNotOverriddenMutatedPropsStorage)
+        primaryFunctionInfo.allMutatedPropsStorage.addAll(otherAllMutatedPropsStorage)
+
+        if (primaryFunctionInfo.isThisFrozen && otherNotOverriddenMutatedPropsStorage.isNotEmpty()) {
+            registerMutationProblemOn(elementForCheck)
+        } else {
+            if (additionalFunctionInfo.isThisFrozen) {
+                primaryFunctionInfo.isThisFrozen = true
+            }
+
+            mainLoop@
+            for (frozenProp in primaryFunctionInfo.frozenPropsStorage) {
+                for (mutatedProps in otherNotOverriddenMutatedPropsStorage) {
+                    if (frozenProp.isSubset(mutatedProps) && frozenProp.size < mutatedProps.size) {
+                        registerMutationProblemOn(elementForCheck)
+                        break@mainLoop
+                    }
+                }
+            }
+        }
+
         primaryFunctionInfo.frozenPropsStorage = primaryFunctionInfo.frozenPropsStorage.filter {
             var isIncluded = true
-            for (prop in additionalMutatedPropsStorage) {
+            for (prop in otherAllMutatedPropsStorage) {
                 if (prop.isNotEmpty() && prop.isSubset(it)) {
                     isIncluded = false
                     break
@@ -145,27 +179,6 @@ private class MemoryMutabilityInspectionImpl(private val holder: ProblemsHolder)
             }
             isIncluded
         }.toCollection(ArrayList())
-
-        primaryFunctionInfo.frozenPropsStorage.addAll(additionalFrozenPropsStorage)
-        primaryFunctionInfo.mutatedPropsStorage.addAll(additionalMutatedPropsStorage)
-
-        if (primaryFunctionInfo.isThisFrozen && additionalMutatedPropsStorage.isNotEmpty()) {
-            registerMutationProblemOn(elementForCheck)
-            return
-        }
-
-        if (additionalFunctionInfo.isThisFrozen) {
-            primaryFunctionInfo.isThisFrozen = true
-        }
-
-        for (frozenProp in primaryFunctionInfo.frozenPropsStorage) {
-            for (mutatedProps in primaryFunctionInfo.mutatedPropsStorage) {
-                if (frozenProp.isSubset(mutatedProps) && frozenProp.size < mutatedProps.size) {
-                    registerMutationProblemOn(elementForCheck)
-                    return
-                }
-            }
-        }
     }
 
     private fun registerMutationProblemOn(element: PsiElement) {
