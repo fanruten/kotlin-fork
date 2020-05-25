@@ -2072,6 +2072,14 @@
                      language="kotlin"
                      key="inspection.leaking.this.display.name" bundle="messages.KotlinBundle"/>
 
+    <localInspection implementationClass="org.jetbrains.kotlin.idea.inspections.MemoryMutabilityInspection"
+                     groupPath="Kotlin"
+                     groupName="Probable bugs"
+                     enabledByDefault="true"
+                     level="WARNING"
+                     language="kotlin"
+                     key="inspection.memory.mutability.this.display.name" bundle="messages.KotlinBundle"/>
+
     <localInspection implementationClass="org.jetbrains.kotlin.idea.inspections.HasPlatformTypeInspection"
                      groupPath="Kotlin"
                      groupName="Java interop issues"

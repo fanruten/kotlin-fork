@@ -6069,6 +6069,134 @@ public class LocalInspectionTestGenerated extends AbstractLocalInspectionTest {
         }
     }
 
+    @TestMetadata("idea/testData/inspectionsLocal/memoryMutability")
+    @TestDataPath("$PROJECT_ROOT")
+    @RunWith(JUnit3RunnerWithInners.class)
+    public static class MemoryMutability extends AbstractLocalInspectionTest {
+        private void runTest(String testDataFilePath) throws Exception {
+            KotlinTestUtils.runTest(this::doTest, this, testDataFilePath);
+        }
+
+        public void testAllFilesPresentInMemoryMutability() throws Exception {
+            KotlinTestUtils.assertAllTestsPresentByMetadataWithExcluded(this.getClass(), new File("idea/testData/inspectionsLocal/memoryMutability"), Pattern.compile("^([\\w\\-_]+)\\.(kt|kts)$"), null, true);
+        }
+
+        @TestMetadata("test1.kt")
+        public void testTest1() throws Exception {
+            runTest("idea/testData/inspectionsLocal/memoryMutability/test1.kt");
+        }
+
+        @TestMetadata("test2.kt")
+        public void testTest2() throws Exception {
+            runTest("idea/testData/inspectionsLocal/memoryMutability/test2.kt");
+        }
+
+        @TestMetadata("test3.kt")
+        public void testTest3() throws Exception {
+            runTest("idea/testData/inspectionsLocal/memoryMutability/test3.kt");
+        }
+
+        @TestMetadata("test4.kt")
+        public void testTest4() throws Exception {
+            runTest("idea/testData/inspectionsLocal/memoryMutability/test4.kt");
+        }
+
+        @TestMetadata("test5.kt")
+        public void testTest5() throws Exception {
+            runTest("idea/testData/inspectionsLocal/memoryMutability/test5.kt");
+        }
+
+        @TestMetadata("test6.kt")
+        public void testTest6() throws Exception {
+            runTest("idea/testData/inspectionsLocal/memoryMutability/test6.kt");
+        }
+
+        @TestMetadata("test7.kt")
+        public void testTest7() throws Exception {
+            runTest("idea/testData/inspectionsLocal/memoryMutability/test7.kt");
+        }
+
+        @TestMetadata("test8.kt")
+        public void testTest8() throws Exception {
+            runTest("idea/testData/inspectionsLocal/memoryMutability/test8.kt");
+        }
+
+        @TestMetadata("test9.kt")
+        public void testTest9() throws Exception {
+            runTest("idea/testData/inspectionsLocal/memoryMutability/test9.kt");
+        }
+
+        @TestMetadata("test10.kt")
+        public void testTest10() throws Exception {
+            runTest("idea/testData/inspectionsLocal/memoryMutability/test10.kt");
+        }
+
+        @TestMetadata("test11.kt")
+        public void testTest11() throws Exception {
+            runTest("idea/testData/inspectionsLocal/memoryMutability/test11.kt");
+        }
+
+        @TestMetadata("test12.kt")
+        public void testTest12() throws Exception {
+            runTest("idea/testData/inspectionsLocal/memoryMutability/test12.kt");
+        }
+
+        @TestMetadata("test13.kt")
+        public void testTest13() throws Exception {
+            runTest("idea/testData/inspectionsLocal/memoryMutability/test13.kt");
+        }
+
+        @TestMetadata("test14.kt")
+        public void testTest14() throws Exception {
+            runTest("idea/testData/inspectionsLocal/memoryMutability/test14.kt");
+        }
+
+        @TestMetadata("test15.kt")
+        public void testTest15() throws Exception {
+            runTest("idea/testData/inspectionsLocal/memoryMutability/test15.kt");
+        }
+
+        @TestMetadata("test16.kt")
+        public void testTest16() throws Exception {
+            runTest("idea/testData/inspectionsLocal/memoryMutability/test16.kt");
+        }
+
+        @TestMetadata("test17.kt")
+        public void testTest17() throws Exception {
+            runTest("idea/testData/inspectionsLocal/memoryMutability/test17.kt");
+        }
+
+        @TestMetadata("test18.kt")
+        public void testTest18() throws Exception {
+            runTest("idea/testData/inspectionsLocal/memoryMutability/test18.kt");
+        }
+
+        @TestMetadata("test19.kt")
+        public void testTest19() throws Exception {
+            runTest("idea/testData/inspectionsLocal/memoryMutability/test19.kt");
+        }
+
+        @TestMetadata("test20.kt")
+        public void testTest20() throws Exception {
+            runTest("idea/testData/inspectionsLocal/memoryMutability/test20.kt");
+        }
+
+        @TestMetadata("test21.kt")
+        public void testTest21() throws Exception {
+            runTest("idea/testData/inspectionsLocal/memoryMutability/test21.kt");
+        }
+
+        @TestMetadata("test22.kt")
+        public void testTest22() throws Exception {
+            runTest("idea/testData/inspectionsLocal/memoryMutability/test22.kt");
+        }
+
+        @TestMetadata("test23.kt")
+        public void testTest23() throws Exception {
+            runTest("idea/testData/inspectionsLocal/memoryMutability/test23.kt");
+        }
+    }
+
     @TestMetadata("idea/testData/inspectionsLocal/migrateDiagnosticSuppression")
     @TestDataPath("$PROJECT_ROOT")
     @RunWith(JUnit3RunnerWithInners.class)
